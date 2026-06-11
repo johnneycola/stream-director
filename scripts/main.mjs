@@ -6,7 +6,7 @@
  *   "gm"       — GM window: free camera, never panned by others
  *   "player"   — Player window: own camera, never panned by others
  *   "operator" — Operator window: auto-follows moved tokens,
- *                jumps to points sent by the GM
+ *                jumps to the point where GM long-presses (ping)
  */
 
 const MODULE_ID = "stream-director";
@@ -20,8 +20,6 @@ function setting(key) {
 
 /** Returns the role of THIS client. */
 function myRole() {
-  // If the GM has designated a specific user as operator via their user ID,
-  // that takes priority over the local self-selected role.
   const operatorId = setting("operatorUserId")?.trim();
   if (operatorId && game.user.id === operatorId) return "operator";
   return setting("role");
@@ -32,30 +30,20 @@ function isGM()       { return myRole() === "gm"; }
 
 // ── canvas pan override ───────────────────────────────────────────────────────
 //
-// Foundry v13 uses canvas.animatePan() for all programmatic pans
-// (token movement pan, scene view, etc.).
-// We wrap it so only the operator client actually executes remote pans.
-//
-// IMPORTANT: we only suppress pans that originate from Foundry's own
-// "follow token" / "pan to user cursor" code, NOT explicit user drags.
+// Foundry v13 uses canvas.animatePan() for all programmatic pans.
+// We wrap it to block unwanted remote pans on GM and player clients.
 
 let _originalAnimatePan = null;
 let _panSuppressed = false;
 
 function installPanGuard() {
-  if (_originalAnimatePan) return; // already installed
+  if (_originalAnimatePan) return;
   _originalAnimatePan = canvas.animatePan.bind(canvas);
 
   canvas.animatePan = function (view) {
-    if (_panSuppressed) return Promise.resolve(); // block
+    if (_panSuppressed) return Promise.resolve();
     return _originalAnimatePan(view);
   };
-}
-
-/** Temporarily allow a single programmatic pan (used by operator). */
-async function allowedPan(view) {
-  _panSuppressed = false;
-  await _originalAnimatePan(view);
 }
 
 // ── token tracking ────────────────────────────────────────────────────────────
@@ -63,7 +51,6 @@ async function allowedPan(view) {
 let _trackedTokenId = null;
 let _trackingEnabled = true;
 
-/** Called when any token finishes moving. */
 function onTokenMoved(token) {
   if (!isOperator()) return;
   if (!_trackingEnabled) return;
@@ -71,7 +58,6 @@ function onTokenMoved(token) {
   const mode = setting("trackMode");
 
   if (mode === "players") {
-    // Only track tokens owned by a non-GM player
     const actor = token.actor;
     if (!actor) return;
     const owners = Object.entries(actor.ownership ?? {})
@@ -85,7 +71,6 @@ function onTokenMoved(token) {
   }
 
   if (mode === "combat") {
-    // Only track the currently active combatant
     const combatant = game.combat?.combatant;
     if (!combatant || combatant.tokenId !== token.id) return;
   }
@@ -105,30 +90,29 @@ function panToToken(token) {
   });
 }
 
-// ── GM jump ───────────────────────────────────────────────────────────────────
+// ── GM ping → operator jump ───────────────────────────────────────────────────
+//
+// Foundry fires the "canvasPing" hook whenever any user long-presses LMB.
+// We listen only for pings from the GM user and broadcast to the operator.
 
-function sendJumpToOperator(worldX, worldY) {
-  // Show local indicator
-  showJumpIndicator(worldX, worldY);
-  // Emit to all clients; only the operator will act
-  game.socket.emit(SOCKET_NAME, {
-    type: "jump",
-    x: worldX,
-    y: worldY,
-    scale: canvas.stage.scale.x,
+function installPingHook() {
+  Hooks.on("canvasPing", (origin, options) => {
+    // origin = {x, y} in world coordinates
+    // options.user — the User who pinged (v13 passes the User object or id)
+    const pingUserId = options?.user?.id ?? options?.userId ?? options?.user;
+
+    // Only react to pings from a GM-role user
+    const pingUser = game.users.get(pingUserId);
+    if (!pingUser?.isGM) return;
+
+    // Broadcast jump to operator via socket
+    game.socket.emit(SOCKET_NAME, {
+      type: "jump",
+      x: origin.x,
+      y: origin.y,
+      scale: canvas.stage.scale.x,
+    });
   });
-}
-
-function showJumpIndicator(worldX, worldY) {
-  const el = document.getElementById("stream-director-jump-indicator");
-  if (!el) return;
-  // Convert world → screen
-  const pt = canvas.stage.toGlobal({ x: worldX, y: worldY });
-  el.style.left = `${pt.x}px`;
-  el.style.top  = `${pt.y}px`;
-  el.classList.remove("active");
-  void el.offsetWidth; // reflow
-  el.classList.add("active");
 }
 
 // ── operator panel UI ─────────────────────────────────────────────────────────
@@ -187,44 +171,9 @@ function updateOperatorPanel() {
   tokenEl.textContent = token?.name ?? game.i18n.localize("STREAMDIR.OperatorPanel.None");
 }
 
-// ── jump indicator DOM element ────────────────────────────────────────────────
-
-function buildJumpIndicator() {
-  if (!isGM()) return;
-  const el = document.createElement("div");
-  el.id = "stream-director-jump-indicator";
-  document.body.appendChild(el);
-}
-
-// ── mouse event for GM jump ───────────────────────────────────────────────────
-
-function installGMMouseHandler() {
-  if (!isGM()) return;
-
-  const jumpButton = setting("jumpButton"); // "middle" | "right"
-
-  if (jumpButton === "middle") {
-    // auxclick fires for middle button (button === 1)
-    canvas.app.view.addEventListener("auxclick", (e) => {
-      if (e.button !== 1) return;
-      e.preventDefault();
-      const world = canvas.stage.toLocal({ x: e.clientX, y: e.clientY });
-      sendJumpToOperator(world.x, world.y);
-    });
-  } else {
-    // Right-click via canvas contextmenu hook
-    // We add an entry to the canvas right-click context menu via a hook
-    Hooks.on("getSceneControlButtons", () => {}); // ensure hooks are ready
-    canvas.app.view.addEventListener("contextmenu", (e) => {
-      // We'll handle this via the Foundry context-menu hook instead
-    });
-  }
-}
-
 // ── Foundry hooks ─────────────────────────────────────────────────────────────
 
 Hooks.once("init", () => {
-  // ── settings ──
   game.settings.register(MODULE_ID, "role", {
     name: "STREAMDIR.Settings.Role",
     hint: "STREAMDIR.Settings.RoleHint",
@@ -262,35 +211,19 @@ Hooks.once("init", () => {
     },
     default: "any",
   });
-
-  game.settings.register(MODULE_ID, "jumpButton", {
-    name: "STREAMDIR.Settings.JumpButton",
-    hint: "STREAMDIR.Settings.JumpButtonHint",
-    scope: "world",
-    config: true,
-    type: String,
-    choices: {
-      middle: "STREAMDIR.Settings.JumpButtonMiddle",
-      right:  "STREAMDIR.Settings.JumpButtonRight",
-    },
-    default: "middle",
-  });
 });
 
 Hooks.once("ready", () => {
-  // ── pan guard: always install, suppress based on role ──
+  // Install ping hook once — it works across scene changes
+  installPingHook();
+
   Hooks.on("canvasReady", () => {
     installPanGuard();
 
     const role = myRole();
 
-    // GM and players should have their pans suppressed when they come from
-    // Foundry's auto-follow/pan system. We do this by always suppressing
-    // remote pans unless we're the operator.
     if (role === "gm" || role === "player") {
       _panSuppressed = true;
-      // Allow the user to still drag the canvas freely — that goes through
-      // mouse events, not animatePan, so this is safe.
     } else {
       _panSuppressed = false;
     }
@@ -299,12 +232,6 @@ Hooks.once("ready", () => {
       buildOperatorPanel();
     }
 
-    if (role === "gm") {
-      buildJumpIndicator();
-      installGMMouseHandler();
-    }
-
-    // Notify the user of their active role
     const notifKey =
       role === "operator" ? "STREAMDIR.Notification.OperatorMode" :
       role === "gm"       ? "STREAMDIR.Notification.GMMode" :
@@ -312,12 +239,12 @@ Hooks.once("ready", () => {
     ui.notifications.info(game.i18n.localize(notifKey));
   });
 
-  // ── socket ──
+  // ── socket: receive jump on operator client ──
   game.socket.on(SOCKET_NAME, (data) => {
     if (!isOperator()) return;
 
     if (data.type === "jump") {
-      _trackingEnabled = false; // disable auto-tracking on manual jump
+      _trackingEnabled = false;
       _trackedTokenId = null;
       updateOperatorPanel();
       canvas.animatePan({ x: data.x, y: data.y, scale: data.scale, duration: 500 });
@@ -325,25 +252,21 @@ Hooks.once("ready", () => {
   });
 });
 
-// ── token movement detection ──────────────────────────────────────────────────
-//
-// Foundry v13: Token#_onUpdate fires after the token document updates on the
-// client. We hook into the token refresh pipeline instead via updateToken.
+// ── token movement ────────────────────────────────────────────────────────────
 
 Hooks.on("updateToken", (tokenDocument, changes, _options, _userId) => {
-  // Only react if position changed
   if (!("x" in changes) && !("y" in changes)) return;
   if (!isOperator()) return;
   if (!_trackingEnabled) return;
 
-  // Wait one tick so the token sprite position is updated
   setTimeout(() => {
     const token = canvas.tokens?.get(tokenDocument.id);
     if (token) onTokenMoved(token);
   }, 50);
 });
 
-// Update panel when combat turn changes (for "combat" tracking mode)
+// ── combat turn change ────────────────────────────────────────────────────────
+
 Hooks.on("combatTurnChange", (_combat, _prior, _current) => {
   if (!isOperator()) return;
   if (setting("trackMode") !== "combat") return;
@@ -355,56 +278,4 @@ Hooks.on("combatTurnChange", (_combat, _prior, _current) => {
     panToToken(token);
     updateOperatorPanel();
   }
-});
-
-// ── right-click context menu entry for GM jump ────────────────────────────────
-
-Hooks.on("getSceneControlButtons", (controls) => {
-  // We don't add a scene control; jump is via mouse button.
-  // This hook is just here as a no-op to confirm controls are loaded.
-});
-
-/**
- * If jumpButton === "right", we intercept the canvas mousedown event
- * and check whether the user is holding a modifier key (Alt) +
- * right-click to avoid hijacking normal right-click behaviour.
- *
- * Re-installed on every canvasReady to handle scene changes.
- */
-Hooks.on("canvasReady", () => {
-  if (!isGM()) return;
-  if (setting("jumpButton") !== "right") return;
-
-  const view = canvas.app.view;
-  if (view._sdStreamDirectorHandler) {
-    view.removeEventListener("contextmenu", view._sdStreamDirectorHandler);
-  }
-
-  view._sdStreamDirectorHandler = (e) => {
-    if (!e.altKey) return; // require Alt + right-click to send jump
-    e.preventDefault();
-    e.stopPropagation();
-    const world = canvas.stage.toLocal({ x: e.clientX, y: e.clientY });
-    sendJumpToOperator(world.x, world.y);
-  };
-  view.addEventListener("contextmenu", view._sdStreamDirectorHandler);
-});
-
-// Middle-click handler also reinstalled on canvasReady
-Hooks.on("canvasReady", () => {
-  if (!isGM()) return;
-  if (setting("jumpButton") !== "middle") return;
-
-  const view = canvas.app.view;
-  if (view._sdStreamDirectorAuxHandler) {
-    view.removeEventListener("auxclick", view._sdStreamDirectorAuxHandler);
-  }
-
-  view._sdStreamDirectorAuxHandler = (e) => {
-    if (e.button !== 1) return;
-    e.preventDefault();
-    const world = canvas.stage.toLocal({ x: e.clientX, y: e.clientY });
-    sendJumpToOperator(world.x, world.y);
-  };
-  view.addEventListener("auxclick", view._sdStreamDirectorAuxHandler);
 });
