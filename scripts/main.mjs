@@ -18,7 +18,6 @@ function setting(key) {
   return game.settings.get(MODULE_ID, key);
 }
 
-/** Returns the role of THIS client. */
 function myRole() {
   const operatorId = setting("operatorUserId")?.trim();
   if (operatorId && game.user.id === operatorId) return "operator";
@@ -29,9 +28,6 @@ function isOperator() { return myRole() === "operator"; }
 function isGM()       { return myRole() === "gm"; }
 
 // ── canvas pan override ───────────────────────────────────────────────────────
-//
-// Foundry v13 uses canvas.animatePan() for all programmatic pans.
-// We wrap it to block unwanted remote pans on GM and player clients.
 
 let _originalAnimatePan = null;
 let _panSuppressed = false;
@@ -92,27 +88,35 @@ function panToToken(token) {
 
 // ── GM ping → operator jump ───────────────────────────────────────────────────
 //
-// Foundry fires the "canvasPing" hook whenever any user long-presses LMB.
-// We listen only for pings from the GM user and broadcast to the operator.
+// In Foundry v13 pings travel via the "userActivity" socket event:
+//   ["userActivity", userId, { cursor: {x, y}, ping: { scene, pull, style, zoom } }]
+//
+// We intercept incoming packets on the operator client and react when
+// the sender is a GM and the payload contains a "ping" field.
 
-function installPingHook() {
-  Hooks.on("canvasPing", (origin, options) => {
-    // origin = {x, y} in world coordinates
-    // options.user — the User who pinged (v13 passes the User object or id)
-    const pingUserId = options?.user?.id ?? options?.userId ?? options?.user;
+function installPingListener() {
+  if (!isOperator()) return;
 
-    // Only react to pings from a GM-role user
-    const pingUser = game.users.get(pingUserId);
-    if (!pingUser?.isGM) return;
+  const _onevent = game.socket.onevent.bind(game.socket);
+  game.socket.onevent = function (packet) {
+    _onevent(packet); // let Foundry handle it normally first
 
-    // Broadcast jump to operator via socket
-    game.socket.emit(SOCKET_NAME, {
-      type: "jump",
-      x: origin.x,
-      y: origin.y,
-      scale: canvas.stage.scale.x,
-    });
-  });
+    const [event, userId, data] = packet.data ?? [];
+    if (event !== "userActivity") return;
+    if (!data?.ping) return;
+
+    const sender = game.users.get(userId);
+    if (!sender?.isGM) return;
+
+    const x = data.cursor?.x;
+    const y = data.cursor?.y;
+    if (x == null || y == null) return;
+
+    _trackingEnabled = false;
+    _trackedTokenId = null;
+    updateOperatorPanel();
+    canvas.animatePan({ x, y, duration: 500 });
+  };
 }
 
 // ── operator panel UI ─────────────────────────────────────────────────────────
@@ -214,8 +218,8 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
-  // Install ping hook once — it works across scene changes
-  installPingHook();
+  // Install ping listener once — works across scene changes
+  installPingListener();
 
   Hooks.on("canvasReady", () => {
     installPanGuard();
@@ -237,18 +241,6 @@ Hooks.once("ready", () => {
       role === "gm"       ? "STREAMDIR.Notification.GMMode" :
                             "STREAMDIR.Notification.PlayerMode";
     ui.notifications.info(game.i18n.localize(notifKey));
-  });
-
-  // ── socket: receive jump on operator client ──
-  game.socket.on(SOCKET_NAME, (data) => {
-    if (!isOperator()) return;
-
-    if (data.type === "jump") {
-      _trackingEnabled = false;
-      _trackedTokenId = null;
-      updateOperatorPanel();
-      canvas.animatePan({ x: data.x, y: data.y, scale: data.scale, duration: 500 });
-    }
   });
 });
 
