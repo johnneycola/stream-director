@@ -1,0 +1,35 @@
+{
+  "id": "stream-director",
+  "title": "Stream Director",
+  "description": "Модуль для ведения трансляций: независимые камеры для мастера, игроков и оператора.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "authors": [
+    {
+      "name": "Stream Director"
+    }
+  ],
+  "esmodules": [
+    "scripts/main.mjs"
+  ],
+  "styles": [
+    "styles/stream-director.css"
+  ],
+  "languages": [
+    {
+      "lang": "ru",
+      "name": "Russian",
+      "path": "lang/ru.json"
+    },
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "socket": true,
+  "flags": {}
+}

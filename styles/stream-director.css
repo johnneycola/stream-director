@@ -1,0 +1,109 @@
+/* Stream Director — styles */
+
+/* ── Operator HUD ── */
+#stream-director-operator-panel {
+  position: fixed;
+  bottom: 80px;
+  right: 10px;
+  z-index: 9000;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #eee;
+  font-family: var(--font-primary, sans-serif);
+  font-size: 12px;
+  min-width: 170px;
+  user-select: none;
+  backdrop-filter: blur(4px);
+}
+
+#stream-director-operator-panel .sdp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-weight: bold;
+  font-size: 13px;
+  color: #fff;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+  padding-bottom: 5px;
+}
+
+#stream-director-operator-panel .sdp-header .sdp-icon {
+  font-size: 16px;
+}
+
+#stream-director-operator-panel .sdp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 3px 0;
+  gap: 8px;
+}
+
+#stream-director-operator-panel .sdp-label {
+  color: #aaa;
+}
+
+#stream-director-operator-panel .sdp-value {
+  color: #fff;
+  font-weight: 500;
+  text-align: right;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#stream-director-operator-panel .sdp-tracking-on {
+  color: #4caf50;
+}
+
+#stream-director-operator-panel .sdp-tracking-off {
+  color: #f44336;
+}
+
+#stream-director-operator-panel .sdp-btn {
+  margin-top: 7px;
+  width: 100%;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#stream-director-operator-panel .sdp-btn:hover {
+  background: rgba(255,255,255,0.22);
+}
+
+/* ── GM jump indicator ── */
+#stream-director-jump-indicator {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  width: 32px;
+  height: 32px;
+  margin-left: -16px;
+  margin-top: -16px;
+  border: 3px solid #e040fb;
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(1);
+  transition: opacity 0.1s, transform 0.1s;
+}
+
+#stream-director-jump-indicator.active {
+  opacity: 1;
+  animation: sdp-ping 0.5s ease-out forwards;
+}
+
+@keyframes sdp-ping {
+  0%   { transform: scale(0.4); opacity: 1; }
+  80%  { transform: scale(1.6); opacity: 0.4; }
+  100% { transform: scale(2);   opacity: 0; }
+}
