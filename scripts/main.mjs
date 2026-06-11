@@ -6,7 +6,7 @@
  *   "gm"       — GM window: free camera, never panned by others
  *   "player"   — Player window: own camera, never panned by others
  *   "operator" — Operator window: auto-follows moved tokens,
- *                jumps to the point where GM long-presses (ping)
+ *                jumps to point when GM presses Ctrl+LMB
  */
 
 const MODULE_ID = "stream-director";
@@ -86,37 +86,46 @@ function panToToken(token) {
   });
 }
 
-// ── GM ping → operator jump ───────────────────────────────────────────────────
-//
-// In Foundry v13 pings travel via the "userActivity" socket event:
-//   ["userActivity", userId, { cursor: {x, y}, ping: { scene, pull, style, zoom } }]
-//
-// We intercept incoming packets on the operator client and react when
-// the sender is a GM and the payload contains a "ping" field.
+// ── GM Ctrl+LMB → operator jump ───────────────────────────────────────────────
 
-function installPingListener() {
-  if (!isOperator()) return;
+function sendJumpToOperator(worldX, worldY) {
+  game.socket.emit(SOCKET_NAME, {
+    type: "jump",
+    x: worldX,
+    y: worldY,
+    scale: canvas.stage.scale.x,
+  });
+}
 
-  const _onevent = game.socket.onevent.bind(game.socket);
-  game.socket.onevent = function (packet) {
-    _onevent(packet); // let Foundry handle it normally first
+function installCtrlClickHandler() {
+  if (!isGM()) return;
 
-    const [event, userId, data] = packet.data ?? [];
-    if (event !== "userActivity") return;
-    if (!data?.ping) return;
+  const view = canvas.app.canvas;
 
-    const sender = game.users.get(userId);
-    if (!sender?.isGM) return;
+  // Remove previous handler if scene changed
+  if (view._sdCtrlClickHandler) {
+    view.removeEventListener("mousedown", view._sdCtrlClickHandler);
+  }
 
-    const x = data.cursor?.x;
-    const y = data.cursor?.y;
-    if (x == null || y == null) return;
+  view._sdCtrlClickHandler = (e) => {
+    // Only Ctrl + left mouse button
+    if (!e.ctrlKey || e.button !== 0) return;
 
-    _trackingEnabled = false;
-    _trackedTokenId = null;
-    updateOperatorPanel();
-    canvas.animatePan({ x, y, duration: 500 });
+    // Prevent Foundry from doing anything else with this click
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Convert screen → world coordinates
+    const rect = view.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const world = canvas.stage.toLocal({ x: screenX, y: screenY });
+
+    sendJumpToOperator(world.x, world.y);
   };
+
+  // Use capture phase so we get it before Foundry's own handlers
+  view.addEventListener("mousedown", view._sdCtrlClickHandler, { capture: true });
 }
 
 // ── operator panel UI ─────────────────────────────────────────────────────────
@@ -218,9 +227,6 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
-  // Install ping listener once — works across scene changes
-  installPingListener();
-
   Hooks.on("canvasReady", () => {
     installPanGuard();
 
@@ -236,11 +242,27 @@ Hooks.once("ready", () => {
       buildOperatorPanel();
     }
 
+    if (role === "gm") {
+      installCtrlClickHandler();
+    }
+
     const notifKey =
       role === "operator" ? "STREAMDIR.Notification.OperatorMode" :
       role === "gm"       ? "STREAMDIR.Notification.GMMode" :
                             "STREAMDIR.Notification.PlayerMode";
     ui.notifications.info(game.i18n.localize(notifKey));
+  });
+
+  // ── socket: receive jump on operator client ──
+  game.socket.on(SOCKET_NAME, (data) => {
+    if (!isOperator()) return;
+
+    if (data.type === "jump") {
+      _trackingEnabled = false;
+      _trackedTokenId = null;
+      updateOperatorPanel();
+      canvas.animatePan({ x: data.x, y: data.y, scale: data.scale, duration: 500 });
+    }
   });
 });
 
