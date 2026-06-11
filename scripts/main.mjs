@@ -6,7 +6,7 @@
  *   "gm"       — GM window: free camera, never panned by others
  *   "player"   — Player window: own camera, never panned by others
  *   "operator" — Operator window: auto-follows moved tokens,
- *                jumps to point when GM presses Ctrl+LMB
+ *                jumps to point when GM double-clicks empty canvas
  */
 
 const MODULE_ID = "stream-director";
@@ -86,7 +86,10 @@ function panToToken(token) {
   });
 }
 
-// ── GM Ctrl+LMB → operator jump ───────────────────────────────────────────────
+// ── GM double-click → operator jump ──────────────────────────────────────────
+//
+// We hook into Foundry's own canvas "dblclick" handler via the
+// clickCanvas hook which fires when the GM double-clicks empty space.
 
 function sendJumpToOperator(worldX, worldY) {
   game.socket.emit(SOCKET_NAME, {
@@ -97,35 +100,15 @@ function sendJumpToOperator(worldX, worldY) {
   });
 }
 
-function installCtrlClickHandler() {
+function installDblClickHandler() {
   if (!isGM()) return;
 
-  const view = canvas.app.canvas;
-
-  // Remove previous handler if scene changed
-  if (view._sdCtrlClickHandler) {
-    view.removeEventListener("mousedown", view._sdCtrlClickHandler);
-  }
-
-  view._sdCtrlClickHandler = (e) => {
-    // Only Ctrl + left mouse button
-    if (!e.ctrlKey || e.button !== 0) return;
-
-    // Prevent Foundry from doing anything else with this click
-    e.preventDefault();
-    e.stopPropagation();
-
-    // Convert screen → world coordinates
-    const rect = view.getBoundingClientRect();
-    const screenX = e.clientX - rect.left;
-    const screenY = e.clientY - rect.top;
-    const world = canvas.stage.toLocal({ x: screenX, y: screenY });
-
-    sendJumpToOperator(world.x, world.y);
-  };
-
-  // Use capture phase so we get it before Foundry's own handlers
-  view.addEventListener("mousedown", view._sdCtrlClickHandler, { capture: true });
+  // "dblclickCanvas" hook fires when user double-clicks empty canvas space
+  // It does NOT fire when clicking on tokens, tiles, walls etc.
+  Hooks.on("dblclickCanvas", (canvas, position) => {
+    // position is {x, y} in world coordinates — exactly what we need
+    sendJumpToOperator(position.x, position.y);
+  });
 }
 
 // ── operator panel UI ─────────────────────────────────────────────────────────
@@ -227,6 +210,9 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  // Double-click handler installed once, works across scene changes
+  installDblClickHandler();
+
   Hooks.on("canvasReady", () => {
     installPanGuard();
 
@@ -240,10 +226,6 @@ Hooks.once("ready", () => {
 
     if (role === "operator") {
       buildOperatorPanel();
-    }
-
-    if (role === "gm") {
-      installCtrlClickHandler();
     }
 
     const notifKey =
