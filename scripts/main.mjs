@@ -87,9 +87,6 @@ function panToToken(token) {
 }
 
 // ── GM double-click → operator jump ──────────────────────────────────────────
-//
-// We hook into Foundry's own canvas "dblclick" handler via the
-// clickCanvas hook which fires when the GM double-clicks empty space.
 
 function sendJumpToOperator(worldX, worldY) {
   game.socket.emit(SOCKET_NAME, {
@@ -103,12 +100,23 @@ function sendJumpToOperator(worldX, worldY) {
 function installDblClickHandler() {
   if (!isGM()) return;
 
-  // "dblclickCanvas" hook fires when user double-clicks empty canvas space
-  // It does NOT fire when clicking on tokens, tiles, walls etc.
-  Hooks.on("dblclickCanvas", (canvas, position) => {
-    // position is {x, y} in world coordinates — exactly what we need
-    sendJumpToOperator(position.x, position.y);
-  });
+  const board = document.getElementById("board");
+  if (!board) return;
+
+  // Remove previous handler if reinstalled
+  if (board._sdDblClickHandler) {
+    board.removeEventListener("dblclick", board._sdDblClickHandler);
+  }
+
+  board._sdDblClickHandler = (e) => {
+    const rect = board.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const world = canvas.stage.toLocal({ x: screenX, y: screenY });
+    sendJumpToOperator(world.x, world.y);
+  };
+
+  board.addEventListener("dblclick", board._sdDblClickHandler);
 }
 
 // ── operator panel UI ─────────────────────────────────────────────────────────
@@ -210,9 +218,6 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
-  // Double-click handler installed once, works across scene changes
-  installDblClickHandler();
-
   Hooks.on("canvasReady", () => {
     installPanGuard();
 
@@ -226,6 +231,10 @@ Hooks.once("ready", () => {
 
     if (role === "operator") {
       buildOperatorPanel();
+    }
+
+    if (role === "gm") {
+      installDblClickHandler();
     }
 
     const notifKey =
