@@ -244,16 +244,19 @@ Hooks.once("ready", () => {
     ui.notifications.info(game.i18n.localize(notifKey));
   });
 
-  // ── socket: receive jump on operator client ──
+});
+
+// ── socket: receive jump on operator client ──
+// Registered at top level to ensure it fires after module load.
+Hooks.once("ready", () => {
   game.socket.on(SOCKET_NAME, (data) => {
     if (!isOperator()) return;
+    if (data.type !== "jump") return;
 
-    if (data.type === "jump") {
-      _trackingEnabled = false;
-      _trackedTokenId = null;
-      updateOperatorPanel();
-      canvas.animatePan({ x: data.x, y: data.y, scale: data.scale, duration: 500 });
-    }
+    _trackingEnabled = false;
+    _trackedTokenId = null;
+    updateOperatorPanel();
+    canvas.animatePan({ x: data.x, y: data.y, scale: data.scale, duration: 500 });
   });
 });
 
