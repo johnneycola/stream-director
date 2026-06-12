@@ -218,6 +218,19 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  const role = myRole();
+
+  // Install immediately — #board exists at this point, canvasReady may have already fired
+  if (role === "gm") installDblClickHandler();
+  if (role === "operator") buildOperatorPanel();
+
+  const notifKey =
+    role === "operator" ? "STREAMDIR.Notification.OperatorMode" :
+    role === "gm"       ? "STREAMDIR.Notification.GMMode" :
+                          "STREAMDIR.Notification.PlayerMode";
+  ui.notifications.info(game.i18n.localize(notifKey));
+
+  // Re-install on scene changes
   Hooks.on("canvasReady", () => {
     installPanGuard();
 
@@ -229,19 +242,8 @@ Hooks.once("ready", () => {
       _panSuppressed = false;
     }
 
-    if (role === "operator") {
-      buildOperatorPanel();
-    }
-
-    if (role === "gm") {
-      installDblClickHandler();
-    }
-
-    const notifKey =
-      role === "operator" ? "STREAMDIR.Notification.OperatorMode" :
-      role === "gm"       ? "STREAMDIR.Notification.GMMode" :
-                            "STREAMDIR.Notification.PlayerMode";
-    ui.notifications.info(game.i18n.localize(notifKey));
+    if (role === "operator") buildOperatorPanel();
+    if (role === "gm") installDblClickHandler();
   });
 
 });
