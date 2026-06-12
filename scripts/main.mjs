@@ -222,7 +222,10 @@ Hooks.once("ready", () => {
 
   // Install immediately — #board exists at this point, canvasReady may have already fired
   if (role === "gm") installDblClickHandler();
-  if (role === "operator") buildOperatorPanel();
+  if (role === "operator") {
+    buildOperatorPanel();
+    _trackingEnabled = true;
+  }
 
   const notifKey =
     role === "operator" ? "STREAMDIR.Notification.OperatorMode" :
@@ -257,8 +260,18 @@ Hooks.once("ready", () => {
 
     _trackingEnabled = false;
     _trackedTokenId = null;
-    updateOperatorPanel();
+    // Only update panel if it exists
+    if (document.getElementById("stream-director-operator-panel")) {
+      updateOperatorPanel();
+    } else {
+      buildOperatorPanel();
+    }
     canvas.animatePan({ x: data.x, y: data.y, scale: data.scale, duration: 500 });
+    // Re-enable tracking after 5 seconds
+    setTimeout(() => {
+      _trackingEnabled = true;
+      updateOperatorPanel();
+    }, 5000);
   });
 });
 
