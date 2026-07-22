@@ -2,7 +2,7 @@
   "id": "stream-director",
   "title": "Stream Director",
   "description": "Модуль для ведения трансляций: независимые камеры для мастера, игроков и оператора.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
@@ -30,8 +30,7 @@
       "path": "lang/en.json"
     }
   ],
-  "socket": true,
   "flags": {},
   "manifest": "https://raw.githubusercontent.com/johnneycola/stream-director/main/module.json",
-  "download": "https://github.com/johnneycola/stream-director/releases/download/v1.1.0/stream-director.zip"
+  "download": "https://github.com/johnneycola/stream-director/releases/download/v1.1.1/stream-director.zip"
 }

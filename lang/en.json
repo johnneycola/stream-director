@@ -12,7 +12,6 @@
   "STREAMDIR.Settings.TrackModeAny": "Last moved token (any)",
   "STREAMDIR.Settings.TrackModePlayers": "Player tokens only",
   "STREAMDIR.Settings.TrackModeCombat": "Active token in Combat Tracker",
-  "STREAMDIR.Settings.PingNote": "Camera jump trigger: GM long-presses LMB on the canvas (standard Foundry ping).",
   "STREAMDIR.OperatorPanel.Title": "Operator",
   "STREAMDIR.OperatorPanel.Tracking": "Tracking",
   "STREAMDIR.OperatorPanel.TrackingOn": "On",
@@ -20,7 +19,6 @@
   "STREAMDIR.OperatorPanel.ToggleTracking": "Toggle Tracking",
   "STREAMDIR.OperatorPanel.TrackedToken": "Token",
   "STREAMDIR.OperatorPanel.None": "—",
-  "STREAMDIR.OperatorPanel.JumpedTo": "Jumped to point",
   "STREAMDIR.Notification.OperatorMode": "Stream Director: Operator mode active",
   "STREAMDIR.Notification.GMMode": "Stream Director: GM mode active (free camera)",
   "STREAMDIR.Notification.PlayerMode": "Stream Director: Player mode active (own camera)"

@@ -5,12 +5,14 @@
  * Roles:
  *   "gm"       — GM window: free camera, never panned by others
  *   "player"   — Player window: own camera, never panned by others
- *   "operator" — Operator window: auto-follows moved tokens,
- *                jumps to point when GM double-clicks empty canvas
+ *   "operator" — Operator window: auto-follows moved tokens.
+ *                Manual camera jumps are handled by Foundry's native
+ *                Shift+hold ping ("pull" ping) — the operator's camera
+ *                is the only one not blocked by the pan guard below,
+ *                so a native pull-ping only moves the operator's view.
  */
 
 const MODULE_ID = "stream-director";
-const SOCKET_NAME = `module.${MODULE_ID}`;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -25,7 +27,6 @@ function myRole() {
 }
 
 function isOperator() { return myRole() === "operator"; }
-function isGM()       { return myRole() === "gm"; }
 
 // ── canvas pan override ───────────────────────────────────────────────────────
 
@@ -84,39 +85,6 @@ function panToToken(token) {
     y: y + (height * gridSize) / 2,
     duration: 600,
   });
-}
-
-// ── GM double-click → operator jump ──────────────────────────────────────────
-
-function sendJumpToOperator(worldX, worldY) {
-  game.socket.emit(SOCKET_NAME, {
-    type: "jump",
-    x: worldX,
-    y: worldY,
-    scale: canvas.stage.scale.x,
-  });
-}
-
-function installDblClickHandler() {
-  if (!isGM()) return;
-
-  const board = document.getElementById("board");
-  if (!board) return;
-
-  // Remove previous handler if reinstalled
-  if (board._sdDblClickHandler) {
-    board.removeEventListener("dblclick", board._sdDblClickHandler);
-  }
-
-  board._sdDblClickHandler = (e) => {
-    const rect = board.getBoundingClientRect();
-    const screenX = e.clientX - rect.left;
-    const screenY = e.clientY - rect.top;
-    const world = canvas.stage.toLocal({ x: screenX, y: screenY });
-    sendJumpToOperator(world.x, world.y);
-  };
-
-  board.addEventListener("dblclick", board._sdDblClickHandler);
 }
 
 // ── operator panel UI ─────────────────────────────────────────────────────────
@@ -220,8 +188,6 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
   const role = myRole();
 
-  // Install immediately — #board exists at this point, canvasReady may have already fired
-  if (role === "gm") installDblClickHandler();
   if (role === "operator") {
     buildOperatorPanel();
     _trackingEnabled = true;
@@ -246,33 +212,8 @@ Hooks.once("ready", () => {
     }
 
     if (role === "operator") buildOperatorPanel();
-    if (role === "gm") installDblClickHandler();
   });
 
-});
-
-// ── socket: receive jump on operator client ──
-// Registered at top level to ensure it fires after module load.
-Hooks.once("ready", () => {
-  game.socket.on(SOCKET_NAME, (data) => {
-    if (!isOperator()) return;
-    if (data.type !== "jump") return;
-
-    _trackingEnabled = false;
-    _trackedTokenId = null;
-    // Only update panel if it exists
-    if (document.getElementById("stream-director-operator-panel")) {
-      updateOperatorPanel();
-    } else {
-      buildOperatorPanel();
-    }
-    canvas.animatePan({ x: data.x, y: data.y, scale: data.scale, duration: 500 });
-    // Re-enable tracking after 5 seconds
-    setTimeout(() => {
-      _trackingEnabled = true;
-      updateOperatorPanel();
-    }, 5000);
-  });
 });
 
 // ── token movement ────────────────────────────────────────────────────────────
